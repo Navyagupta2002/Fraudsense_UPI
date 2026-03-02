@@ -7,7 +7,7 @@ import seaborn as sns
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.metrics import confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
@@ -15,7 +15,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 
 # -------------------------------------------------
-# FIX RANDOMNESS (Optional - stable accuracy)
+# FIX RANDOMNESS
 # -------------------------------------------------
 np.random.seed(42)
 tf.random.set_seed(42)
@@ -23,7 +23,48 @@ tf.random.set_seed(42)
 st.set_page_config(page_title="FraudSense UPI", layout="wide")
 
 # -------------------------------------------------
-# SIDEBAR NAVIGATION
+# PREMIUM FINTECH UI
+# -------------------------------------------------
+st.markdown("""
+<style>
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: white;
+}
+section[data-testid="stSidebar"] {
+    background-color: #111827;
+}
+section[data-testid="stSidebar"] * {
+    color: white !important;
+}
+h1, h2, h3 {
+    color: white !important;
+}
+[data-testid="stMetric"] {
+    background: rgba(255,255,255,0.08);
+    padding: 20px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+}
+[data-testid="stMetricValue"] {
+    color: white !important;
+    font-size: 34px !important;
+    font-weight: bold;
+}
+[data-testid="stMetricLabel"] {
+    color: #d1d5db !important;
+}
+.stButton>button {
+    background: linear-gradient(90deg, #00c6ff, #0072ff);
+    color: white;
+    border-radius: 8px;
+    border: none;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# -------------------------------------------------
+# SIDEBAR
 # -------------------------------------------------
 st.sidebar.title("🔐 FraudSense UPI")
 page = st.sidebar.radio("Navigation", ["Home", "Dashboard", "Fraud Detection"])
@@ -38,14 +79,12 @@ def load_data():
 try:
     df = load_data()
 except:
-    st.error("CSV file not found. Keep CSV in same folder as app.py")
+    st.error("CSV file not found.")
     st.stop()
 
 # -------------------------------------------------
-# COMMON PREPROCESSING (SAFE)
+# PREPROCESSING
 # -------------------------------------------------
-
-# Safe datetime extraction
 if "Date" in df.columns and "Time" in df.columns:
     df["Transaction_DateTime"] = pd.to_datetime(
         df["Date"] + " " + df["Time"],
@@ -55,56 +94,44 @@ if "Date" in df.columns and "Time" in df.columns:
     df["day_of_week"] = df["Transaction_DateTime"].dt.day_name()
     df["month"] = df["Transaction_DateTime"].dt.month_name()
 
-# Drop HIGH CARDINALITY columns (IMPORTANT FIX)
 drop_cols = [
-    "Transaction_ID",
-    "Customer_ID",
-    "Merchant_ID",
-    "Device_ID",
-    "IP_Address",
-    "Date",
-    "Time",
-    "Transaction_DateTime"
+    "Transaction_ID","Customer_ID","Merchant_ID",
+    "Device_ID","IP_Address","Date","Time","Transaction_DateTime"
 ]
 
 df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
-# Encode only selected categorical columns
 categorical_cols = [
-    "Transaction_Type",
-    "Payment_Gateway",
-    "Transaction_City",
-    "Transaction_State",
-    "Transaction_Status",
-    "Device_OS",
-    "Merchant_Category",
-    "Transaction_Channel",
-    "day_of_week",
-    "month"
+    "Transaction_Type","Payment_Gateway","Transaction_City",
+    "Transaction_State","Transaction_Status","Device_OS",
+    "Merchant_Category","Transaction_Channel",
+    "day_of_week","month"
 ]
 
 categorical_cols = [c for c in categorical_cols if c in df.columns]
 
 df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-# Check target
 if "fraud" not in df.columns:
-    st.error("Column 'fraud' not found in dataset.")
-    st.write(df.columns)
+    st.error("Column 'fraud' not found.")
     st.stop()
 
-# Scale numeric columns
+# Scale numeric columns safely
 numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
 numeric_cols.remove("fraud")
 
 scaler = StandardScaler()
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 
+# IMPORTANT FIX: Keep all rows
+df = df.replace([np.inf, -np.inf], np.nan)
+df = df.fillna(0)   # <<< THIS FIXES 39,504 ISSUE
+
 X = df.drop("fraud", axis=1)
 y = df["fraud"]
 
 # -------------------------------------------------
-# HOME PAGE
+# HOME
 # -------------------------------------------------
 if page == "Home":
 
@@ -117,7 +144,7 @@ if page == "Home":
     col3.metric("Fraud Rate", f"{y.mean()*100:.2f}%")
 
 # -------------------------------------------------
-# DASHBOARD PAGE
+# DASHBOARD
 # -------------------------------------------------
 elif page == "Dashboard":
 
@@ -138,13 +165,12 @@ elif page == "Dashboard":
         st.pyplot(fig2)
 
 # -------------------------------------------------
-# FRAUD DETECTION PAGE
+# FRAUD DETECTION
 # -------------------------------------------------
 elif page == "Fraud Detection":
 
     st.title("🧠 ANN Fraud Detection Model")
 
-    # Sidebar Hyperparameters
     st.sidebar.header("Model Controls")
 
     hidden1 = st.sidebar.slider("Hidden Layer 1 Units", 64, 512, 256)
@@ -159,6 +185,8 @@ elif page == "Fraud Detection":
 
         with st.spinner("Training model..."):
 
+            tf.keras.backend.clear_session()
+
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.2, random_state=42, stratify=y
             )
@@ -168,8 +196,6 @@ elif page == "Fraud Detection":
                 classes=np.unique(y_train),
                 y=y_train
             )
-
-            class_weight_dict = dict(enumerate(class_weights))
 
             model = Sequential([
                 Dense(hidden1, activation='relu', input_shape=(X_train.shape[1],)),
@@ -199,12 +225,12 @@ elif page == "Fraud Detection":
                 restore_best_weights=True
             )
 
-            history = model.fit(
+            model.fit(
                 X_train, y_train,
                 validation_data=(X_test, y_test),
                 epochs=epochs,
                 batch_size=64,
-                class_weight=class_weight_dict,
+                class_weight=dict(enumerate(class_weights)),
                 callbacks=[early_stop],
                 verbose=0
             )
@@ -213,27 +239,11 @@ elif page == "Fraud Detection":
 
         st.success("Model Trained Successfully ✅")
 
-        accuracy = results[1]
-        auc_score = results[2]
+        st.metric("Accuracy", f"{results[1]*100:.2f}%")
+        st.metric("AUC Score", f"{results[2]:.3f}")
 
-        col1, col2 = st.columns(2)
-        col1.metric("Accuracy", f"{accuracy*100:.2f}%")
-        col2.metric("AUC Score", f"{auc_score:.3f}")
+        y_pred = (model.predict(X_test) > 0.5).astype("int32")
 
-        # ROC Curve
-        y_pred_prob = model.predict(X_test)
-        fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
-        roc_auc = auc(fpr, tpr)
-
-        st.subheader("ROC Curve")
-        fig3, ax3 = plt.subplots()
-        plt.plot(fpr, tpr, label=f"AUC={roc_auc:.3f}")
-        plt.plot([0,1],[0,1],'--')
-        plt.legend()
-        st.pyplot(fig3)
-
-        # Confusion Matrix
-        y_pred = (y_pred_prob > 0.5).astype("int32")
         st.subheader("Confusion Matrix")
         fig4, ax4 = plt.subplots()
         sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt="d")
