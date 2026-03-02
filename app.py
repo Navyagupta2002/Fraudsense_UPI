@@ -23,7 +23,7 @@ tf.random.set_seed(42)
 st.set_page_config(page_title="FraudSense UPI", layout="wide")
 
 # -------------------------------------------------
-# PREMIUM FINTECH UI
+# PREMIUM FINTECH CSS
 # -------------------------------------------------
 st.markdown("""
 <style>
@@ -76,11 +76,7 @@ page = st.sidebar.radio("Navigation", ["Home", "Dashboard", "Fraud Detection"])
 def load_data():
     return pd.read_csv("Upi fraud dataset final.csv")
 
-try:
-    df = load_data()
-except:
-    st.error("CSV file not found.")
-    st.stop()
+df = load_data()
 
 # -------------------------------------------------
 # PREPROCESSING
@@ -116,16 +112,14 @@ if "fraud" not in df.columns:
     st.error("Column 'fraud' not found.")
     st.stop()
 
-# Scale numeric columns safely
 numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
 numeric_cols.remove("fraud")
 
 scaler = StandardScaler()
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 
-# IMPORTANT FIX: Keep all rows
 df = df.replace([np.inf, -np.inf], np.nan)
-df = df.fillna(0)   # <<< THIS FIXES 39,504 ISSUE
+df = df.fillna(0)
 
 X = df.drop("fraud", axis=1)
 y = df["fraud"]
@@ -242,9 +236,31 @@ elif page == "Fraud Detection":
         st.metric("Accuracy", f"{results[1]*100:.2f}%")
         st.metric("AUC Score", f"{results[2]:.3f}")
 
-        y_pred = (model.predict(X_test) > 0.5).astype("int32")
+        # ---------------- Prediction Section ----------------
+        y_pred_prob = model.predict(X_test).ravel()
+        y_pred = (y_pred_prob > 0.5).astype("int32")
+
+        st.subheader("📌 Prediction Summary")
+
+        colA, colB, colC = st.columns(3)
+        colA.metric("Test Transactions", len(y_test))
+        colB.metric("Predicted Fraud", int(y_pred.sum()))
+        colC.metric("Predicted Legitimate", int(len(y_pred) - y_pred.sum()))
 
         st.subheader("Confusion Matrix")
         fig4, ax4 = plt.subplots()
         sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt="d")
         st.pyplot(fig4)
+
+        st.subheader("Fraud Probability Distribution")
+        fig_prob, ax_prob = plt.subplots()
+        ax_prob.hist(y_pred_prob, bins=30)
+        st.pyplot(fig_prob)
+
+        st.subheader("Sample Predictions")
+        sample_df = pd.DataFrame({
+            "Actual": y_test.values[:10],
+            "Predicted": y_pred[:10],
+            "Fraud Probability": y_pred_prob[:10]
+        })
+        st.dataframe(sample_df)
